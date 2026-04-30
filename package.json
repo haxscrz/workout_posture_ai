@@ -1,0 +1,18 @@
+{
+  "name": "gym-posture-ai",
+  "version": "1.0.0",
+  "description": "AI-powered gym posture correction using MediaPipe Pose",
+  "scripts": {
+    "start": "vite",
+    "dev": "vite"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-basic-ssl": "^2.3.0",
+    "playwright": "^1.59.1",
+    "serve": "^14.2.0",
+    "vite": "^8.0.10"
+  },
+  "dependencies": {
+    "@tensorflow/tfjs": "^4.22.0"
+  }
+}
