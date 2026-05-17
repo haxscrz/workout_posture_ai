@@ -1,7 +1,6 @@
 @echo off
 title Squat Posture AI
 color 0A
-chcp 65001 >nul 2>&1
 
 echo ============================================================
 echo   Squat Posture AI - Launcher
@@ -28,11 +27,16 @@ if %ERRORLEVEL% neq 0 (
 echo [OK] Python 3.9 found.
 echo.
 
-:: Quick dependency check (only check fast imports, not tensorflow)
+:: Quick dependency check using a temp script (avoids batch parsing issues)
 echo Checking dependencies...
-py -3.9 -c "import mediapipe; import cv2; import numpy" >nul 2>&1
+echo import mediapipe > "%TEMP%\_dep_check.py"
+echo import cv2 >> "%TEMP%\_dep_check.py"
+echo import numpy >> "%TEMP%\_dep_check.py"
+echo print("ok") >> "%TEMP%\_dep_check.py"
+
+py -3.9 "%TEMP%\_dep_check.py" >nul 2>&1
 if %ERRORLEVEL% neq 0 (
-    echo Installing dependencies (first run only, this may take a few minutes)...
+    echo Installing dependencies...
     py -3.9 -m pip install -r requirements.txt
     if %ERRORLEVEL% neq 0 (
         echo ERROR: Failed to install dependencies.
@@ -40,6 +44,7 @@ if %ERRORLEVEL% neq 0 (
         exit /b 1
     )
 )
+del "%TEMP%\_dep_check.py" >nul 2>&1
 echo [OK] Dependencies ready.
 echo.
 
@@ -58,17 +63,17 @@ echo ============================================================
 echo   Choose a mode:
 echo ============================================================
 echo.
-echo   1. Live Camera (webcam)
-echo   2. Live Camera (phone / custom source)
+echo   1. Live Camera - webcam
+echo   2. Live Camera - phone or custom source
 echo   3. Analyze a video file
-echo   4. Train / retrain the model
+echo   4. Train or retrain the model
 echo   5. Exit
 echo.
-set /p "CHOICE=Enter choice (1-5): "
+set /p "CHOICE=Enter choice 1-5: "
 
 if "%CHOICE%"=="1" (
     echo.
-    echo Starting camera... (loading AI model, please wait ~15 seconds)
+    echo Starting camera... loading AI model, please wait about 15 seconds
     echo Press Q to quit, R to reset, C to change camera.
     echo.
     py -3.9 -u src/main.py --camera
@@ -83,9 +88,9 @@ if "%CHOICE%"=="2" (
     echo.
     set /p "SOURCE=Source: "
     echo.
-    echo Starting camera... (loading AI model, please wait ~15 seconds)
+    echo Starting camera... loading AI model, please wait about 15 seconds
     echo.
-    call py -3.9 -u src/main.py --camera --source "%SOURCE%"
+    py -3.9 -u src/main.py --camera --source "%SOURCE%"
     goto MENU
 )
 
@@ -93,16 +98,16 @@ if "%CHOICE%"=="3" (
     echo.
     set /p "VIDEO=Enter video file path: "
     echo.
-    echo Analyzing video... (loading AI model, please wait ~15 seconds)
+    echo Analyzing video... loading AI model, please wait about 15 seconds
     echo.
-    call py -3.9 -u src/main.py --video "%VIDEO%"
+    py -3.9 -u src/main.py --video "%VIDEO%"
     goto MENU
 )
 
 if "%CHOICE%"=="4" (
     echo.
     echo Starting training pipeline...
-    echo This processes all videos in SQUAT_VIDEOS/ and may take 15-20 minutes.
+    echo This processes all videos in SQUAT_VIDEOS and may take 15-20 minutes.
     echo.
     py -3.9 -u src/main.py --train
     goto MENU
