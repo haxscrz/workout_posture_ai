@@ -1,0 +1,1 @@
+# Squat Posture AI

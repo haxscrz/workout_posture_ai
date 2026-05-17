@@ -1,7 +1,5 @@
 # Dependencies
 node_modules/
-training-server/venv/
-tts-server/venv/
 
 # OS files
 Thumbs.db
@@ -24,32 +22,9 @@ build/
 
 # Logs
 *.log
-npm-debug.log*
 
-# Test files
-test_squat_depth.py
-test-analyzer.js
-test-browser.js
-
-# Large video files (training data - users provide their own)
-training-server/data/uploads/**/*.mp4
-training-server/data/uploads/**/*.webm
-training-server/data/uploads/**/*.avi
-training-server/data/uploads/**/*.mov
+# Training videos (too large for git - users provide their own)
 SQUAT_VIDEOS/
-
-# Keep the folder structure for training data
-!training-server/data/uploads/squat/GOOD_FORM/.gitkeep
-!training-server/data/uploads/squat/KNEES_CAVING/.gitkeep
-!training-server/data/uploads/squat/BACK_ROUNDING/.gitkeep
-!training-server/data/uploads/squat/HEELS_RISING/.gitkeep
-!training-server/data/uploads/squat/SHALLOW_DEPTH/.gitkeep
-!training-server/data/uploads/bicep-curl/GOOD_FORM/.gitkeep
-!training-server/data/uploads/bicep-curl/ELBOW_DRIFT/.gitkeep
-!training-server/data/uploads/bicep-curl/TORSO_SWAY/.gitkeep
-!training-server/data/uploads/pushup/GOOD_FORM/.gitkeep
-!training-server/data/uploads/pushup/ELBOW_FLARE/.gitkeep
-!training-server/data/uploads/pushup/HIP_SAG/.gitkeep
 
 # Temp
 *.tmp
