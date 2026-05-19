@@ -12,7 +12,7 @@
 \usepackage{amsmath}
 \usepackage{url}
 
-\title{Workout Posture AI: Real-Time Squat Form Assessment with MediaPipe Landmarks and Temporal Conv1D Modeling}
+\title{Real-Time Squat Form Assessment Using MediaPipe and Temporal Conv1D Modeling}
 
 \author{Workout Posture AI Team \\
   Open-Source Project \\
@@ -62,7 +62,7 @@ Six biomechanically motivated rule checks provide immediate and explainable feed
 Thresholds are derived from normalized measurements configured in \texttt{config.py}. The rules are executed only during the squat phase, and persistent violations are aggregated to score rep quality. Appendix~B lists the exact thresholds used in the implementation.
 
 \section{Temporal Conv1D Model}
-The learned classifier operates on sliding windows of 15 frames (\(15 \times 15\) input tensor: window length \(\times\) feature count). The model stacks three Conv1D blocks (64, 128, 64 filters) with batch normalization, max pooling, and global average pooling. A dense layer with dropout (0.4) precedes the softmax output over seven classes (correct + six error classes). This architecture captures short-term temporal dynamics (e.g., knee collapse trends) while maintaining low latency for real-time feedback. The design follows evidence that temporal convolutions are competitive for sequence modeling in compact settings \cite{bai2018empirical}.
+The learned classifier operates on sliding windows of 15 frames (15 frames \(\times\) 15 features per frame). The model stacks three Conv1D blocks (64, 128, 64 filters) with batch normalization, max pooling, and global average pooling. A dense layer with dropout (0.4) precedes the softmax output over seven classes (correct + six error classes). This architecture captures short-term temporal dynamics (e.g., knee collapse trends) while maintaining low latency for real-time feedback. The design follows evidence that temporal convolutions are competitive for sequence modeling in compact settings \cite{bai2018empirical}.
 
 \section{Training Pipeline}
 Training data are collected in \texttt{SQUAT\_VIDEOS/} and labeled via a filename-to-class mapping. The pipeline scans videos, extracts pose features, and builds overlapping windows (50\% overlap) to increase sample count. Frames are subsampled at a configurable rate (default 2) to reduce redundancy. Horizontal mirroring is used for augmentation, with independent baseline heel calibration per mirrored sequence.
@@ -75,7 +75,7 @@ Real-time processing is implemented by the \texttt{SquatAnalyzer} class. A finit
 The system supports live camera streams, IP webcams, and prerecorded video files, enabling deployment in home or gym environments. The ability to switch camera sources and reset counters provides practical usability for training sessions.
 
 \section{Evaluation}
-The repository ships with a pretrained model reporting 97.4\% validation accuracy, computed from the training pipeline's 20\% validation split (as logged during training). While this metric indicates strong separation across the seven classes, the evaluation is limited by the scope and diversity of the available video dataset. Future work should include cross-subject validation, multi-environment testing, and comparisons with motion-capture ground truth to more rigorously quantify accuracy and biomechanical fidelity.
+The repository ships with a pretrained model reporting 97.4\% validation accuracy, computed from the training pipeline's 20\% validation split and reported in the project README for the bundled model. While this metric indicates strong separation across the seven classes, the evaluation is limited by the scope and diversity of the available video dataset. Future work should include cross-subject validation, multi-environment testing, and comparisons with motion-capture ground truth to more rigorously quantify accuracy and biomechanical fidelity.
 
 \section{Discussion and Limitations}
 The hybrid design combines interpretability with statistical learning, which is advantageous for safety-critical coaching where users need actionable feedback. However, limitations remain. The system relies on 2D/monocular depth estimates (normalized \(z\) from MediaPipe), which may be less stable than multi-camera or depth sensors. Occlusions or partial visibility can reduce reliability, requiring explicit visibility checks. The dataset used for training is limited to curated squat videos and may not cover broader variations in camera angle, body type, or equipment. These constraints motivate future expansion of training data, sensor fusion, and adaptive personalization.
