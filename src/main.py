@@ -25,7 +25,7 @@ Examples:
   python src/main.py --train
   python src/main.py --camera
   python src/main.py --camera --source "http://192.168.1.5:8080/video"
-  python src/main.py --video "SQUAT_VIDEOS/✅ CORRECT SQUAT/squat_11.mp4"
+  python src/main.py --video "SQUAT_VIDEOS/CORRECT SQUAT/squat_11.mp4"
         """,
     )
 
@@ -39,6 +39,8 @@ Examples:
 
     parser.add_argument("--source", type=str, default="0",
                         help="Camera source: index (0,1,..) or IP webcam URL")
+    parser.add_argument("--rotate", type=int, choices=[0, 90, 180, 270], default=0,
+                        help="Rotate camera feed by degrees (0, 90, 180, 270)")
 
     args = parser.parse_args()
 
@@ -54,7 +56,7 @@ Examples:
             source = int(source)
         except ValueError:
             pass  # Keep as string (URL)
-        run_camera(source)
+        run_camera(source, args.rotate)
 
     elif args.video:
         from src.analyzer import run_video

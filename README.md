@@ -26,6 +26,9 @@ py -3.9 src/main.py --camera
 # Phone camera (IP Webcam app)
 py -3.9 src/main.py --camera --source "http://192.168.1.X:8080/video"
 
+# Phone camera with 90-degree rotation (useful for vertical phone setups)
+py -3.9 src/main.py --camera --rotate 90
+
 # Analyze a video file
 py -3.9 src/main.py --video "path/to/squat_video.mp4"
 
@@ -50,6 +53,7 @@ py -3.9 -m pip install -r requirements.txt
 | **Q** / **ESC** | Quit |
 | **R** | Reset rep counter |
 | **C** | Cycle camera source |
+| **O** | Rotate camera orientation (0° → 90° → 180° → 270° → 0°) |
 | **SPACE** | Pause (video mode) |
 
 ## Architecture

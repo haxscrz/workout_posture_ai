@@ -74,7 +74,7 @@ set /p "CHOICE=Enter choice 1-5: "
 if "%CHOICE%"=="1" (
     echo.
     echo Starting camera... loading AI model, please wait about 15 seconds
-    echo Press Q to quit, R to reset, C to change camera.
+    echo Press Q to quit, R to reset, C to change camera, O to rotate orientation.
     echo.
     py -3.9 -u src/main.py --camera
     goto MENU
@@ -89,6 +89,7 @@ if "%CHOICE%"=="2" (
     set /p "SOURCE=Source: "
     echo.
     echo Starting camera... loading AI model, please wait about 15 seconds
+    echo Press Q to quit, R to reset, O to rotate orientation.
     echo.
     py -3.9 -u src/main.py --camera --source "%SOURCE%"
     goto MENU

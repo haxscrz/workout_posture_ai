@@ -408,16 +408,17 @@ def draw_ui(frame, analyzer):
                     cv2.FONT_HERSHEY_SIMPLEX, 0.5, ml_color, 1)
 
     # ── Controls hint ──
-    cv2.putText(frame, "[Q] Quit  [R] Reset  [C] Camera", (w - 280, h - 15),
+    cv2.putText(frame, "[Q] Quit  [R] Reset  [C] Camera  [O] Rotate", (w - 340, h - 15),
                 cv2.FONT_HERSHEY_SIMPLEX, 0.4, COLOR_GRAY, 1)
 
 
-def run_camera(source=0):
+def run_camera(source=0, rotate=0):
     """
     Main camera analysis loop.
 
     Args:
         source: Camera index (int) or IP webcam URL (str).
+        rotate: Initial rotation in degrees (0, 90, 180, 270).
     """
     print("=" * 60)
     print("  Squat Posture AI — Real-Time Analysis")
@@ -441,8 +442,9 @@ def run_camera(source=0):
     cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 720)
 
     current_source = source
+    current_rotation = rotate
     print("  Camera opened. Starting analysis...")
-    print("  Press Q or ESC to quit, R to reset, C to change camera.\n")
+    print("  Press Q or ESC to quit, R to reset, C to change camera, O to rotate.\n")
 
     with mp_pose.Pose(
         static_image_mode=False,
@@ -459,6 +461,14 @@ def run_camera(source=0):
                 print("  Camera feed lost. Retrying...")
                 time.sleep(0.5)
                 continue
+
+            # Apply rotation if needed (before mirroring and MediaPipe)
+            if current_rotation == 90:
+                frame = cv2.rotate(frame, cv2.ROTATE_90_CLOCKWISE)
+            elif current_rotation == 180:
+                frame = cv2.rotate(frame, cv2.ROTATE_180)
+            elif current_rotation == 270:
+                frame = cv2.rotate(frame, cv2.ROTATE_90_COUNTERCLOCKWISE)
 
             # Mirror for selfie view
             frame = cv2.flip(frame, 1)
@@ -509,9 +519,10 @@ def run_camera(source=0):
                         cap.set(cv2.CAP_PROP_FRAME_WIDTH, 1280)
                         cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 720)
                     analyzer.reset()
-
-    cap.release()
-    cv2.destroyAllWindows()
+            elif key in (ord("o"), ord("O")):
+                # Cycle rotation (0 -> 90 -> 180 -> 270 -> 0)
+                current_rotation = (current_rotation + 90) % 360
+                print(f"  [Rotation] Set to {current_rotation} degrees.")
 
     # Print session summary
     print("\n" + "=" * 60)
