@@ -23,28 +23,50 @@ from src.utils import get_lm, midpoint, compute_angle, get_body_height, get_body
 def get_viewing_angle(landmarks):
     """
     Determine the camera viewing profile: 'side', 'oblique', or 'front'.
-    Compares the horizontal width of hips/shoulders to torso height.
+    Compares the horizontal width of hips/shoulders to torso trunk length in 2D.
     """
     l_hip = get_lm(landmarks, LM_LEFT_HIP)
     r_hip = get_lm(landmarks, LM_RIGHT_HIP)
     l_shoulder = get_lm(landmarks, LM_LEFT_SHOULDER)
     r_shoulder = get_lm(landmarks, LM_RIGHT_SHOULDER)
     
-    if not (l_hip and r_hip and l_shoulder and r_shoulder):
+    if not (l_hip or r_hip) or not (l_shoulder or r_shoulder):
         return 'front'  # Fallback
 
-    hip_w = abs(l_hip["x"] - r_hip["x"])
-    shoulder_w = abs(l_shoulder["x"] - r_shoulder["x"])
+    # Use single side widths if one side is obscured
+    if l_hip and r_hip:
+        hip_w = abs(l_hip["x"] - r_hip["x"])
+    else:
+        hip_w = 0.05  # Approximate side-view fallback
+
+    if l_shoulder and r_shoulder:
+        shoulder_w = abs(l_shoulder["x"] - r_shoulder["x"])
+    else:
+        shoulder_w = 0.05  # Approximate side-view fallback
     
-    mid_hip = midpoint(l_hip, r_hip)
-    mid_shoulder = midpoint(l_shoulder, r_shoulder)
-    torso_h = abs(mid_shoulder["y"] - mid_hip["y"])
+    # Resolve shoulder and hip points for trunk length computation
+    if l_shoulder and r_shoulder:
+        shoulder_pt = midpoint(l_shoulder, r_shoulder)
+    else:
+        shoulder_pt = l_shoulder or r_shoulder
+
+    if l_hip and r_hip:
+        hip_pt = midpoint(l_hip, r_hip)
+    else:
+        hip_pt = l_hip or r_hip
+
+    if shoulder_pt is None or hip_pt is None:
+        return 'front'
+
+    dx = shoulder_pt["x"] - hip_pt["x"]
+    dy = shoulder_pt["y"] - hip_pt["y"]
+    trunk_len = math.sqrt(dx * dx + dy * dy)
     
-    if torso_h < 1e-5:
+    if trunk_len < 1e-5:
         return 'front'
         
-    ratio = max(hip_w, shoulder_w) / torso_h
-    if ratio < 0.28:
+    ratio = max(hip_w, shoulder_w) / trunk_len
+    if ratio < 0.35:
         return 'side'
     elif ratio < 0.65:
         return 'oblique'
@@ -100,14 +122,26 @@ def check_forward_lean(landmarks):
     Detect excessive forward lean.
     Measures torso angle from vertical.
     """
-    mid_shoulder = midpoint(get_lm(landmarks, LM_LEFT_SHOULDER), get_lm(landmarks, LM_RIGHT_SHOULDER))
-    mid_hip = midpoint(get_lm(landmarks, LM_LEFT_HIP), get_lm(landmarks, LM_RIGHT_HIP))
-    
-    if mid_shoulder is None or mid_hip is None:
+    l_shoulder = get_lm(landmarks, LM_LEFT_SHOULDER)
+    r_shoulder = get_lm(landmarks, LM_RIGHT_SHOULDER)
+    l_hip = get_lm(landmarks, LM_LEFT_HIP)
+    r_hip = get_lm(landmarks, LM_RIGHT_HIP)
+
+    if l_shoulder and r_shoulder:
+        shoulder_pt = midpoint(l_shoulder, r_shoulder)
+    else:
+        shoulder_pt = l_shoulder or r_shoulder
+
+    if l_hip and r_hip:
+        hip_pt = midpoint(l_hip, r_hip)
+    else:
+        hip_pt = l_hip or r_hip
+
+    if shoulder_pt is None or hip_pt is None:
         return None
 
-    dx = mid_shoulder["x"] - mid_hip["x"]
-    dy = mid_shoulder["y"] - mid_hip["y"]  # Y increases downwards
+    dx = shoulder_pt["x"] - hip_pt["x"]
+    dy = shoulder_pt["y"] - hip_pt["y"]  # Y increases downwards
     trunk_len = math.sqrt(dx * dx + dy * dy)
     if trunk_len < 1e-6:
         return None
@@ -206,30 +240,36 @@ def check_knees_over_toes(landmarks, view='front'):
     l_foot = get_lm(landmarks, LM_LEFT_FOOT_INDEX)
     r_foot = get_lm(landmarks, LM_RIGHT_FOOT_INDEX)
 
-    if not (l_knee and r_knee and l_ankle and r_ankle and l_foot and r_foot):
-        return None
-
     body_h = get_body_height(landmarks)
     over = False
+    flagged_joints = []
 
-    # Choose leg facing camera / most visible
-    # Detect facing direction: if foot index X > ankle X, user is facing right.
-    # Otherwise, user is facing left.
-    if l_foot["x"] > l_ankle["x"]:
-        # Facing right: knee X should not pass foot X to the right
-        if l_knee["x"] - l_foot["x"] > body_h * THRESH_KNEES_OVER_TOES:
-            over = True
-    else:
-        # Facing left: knee X should not pass foot X to the left
-        if l_foot["x"] - l_knee["x"] > body_h * THRESH_KNEES_OVER_TOES:
-            over = True
+    # Check both left and right legs if landmarks are visible
+    legs_to_check = []
+    if l_knee and l_ankle and l_foot:
+        legs_to_check.append((l_knee, l_ankle, l_foot, LM_LEFT_KNEE, LM_LEFT_FOOT_INDEX))
+    if r_knee and r_ankle and r_foot:
+        legs_to_check.append((r_knee, r_ankle, r_foot, LM_RIGHT_KNEE, LM_RIGHT_FOOT_INDEX))
+
+    for knee, ankle, foot, knee_id, foot_id in legs_to_check:
+        # Detect facing direction: if foot index X > ankle X, user is facing screen-right.
+        if foot["x"] > ankle["x"]:
+            # Facing right: knee X should not pass foot X to the right
+            if knee["x"] - foot["x"] > body_h * THRESH_KNEES_OVER_TOES:
+                over = True
+                flagged_joints.extend([knee_id, foot_id])
+        else:
+            # Facing left: knee X should not pass foot X to the left
+            if foot["x"] - knee["x"] > body_h * THRESH_KNEES_OVER_TOES:
+                over = True
+                flagged_joints.extend([knee_id, foot_id])
 
     if over:
         return [{
             "code": "KNEES_OVER_TOES",
             "message": "Sit back more — your knees are drifting past your toes.",
             "severity": "warning",
-            "joints": [LM_LEFT_KNEE, LM_LEFT_FOOT_INDEX],
+            "joints": flagged_joints if flagged_joints else [LM_LEFT_KNEE, LM_LEFT_FOOT_INDEX],
         }]
     return None
 
@@ -293,7 +333,7 @@ def check_uneven_weight(landmarks, view='front'):
     return None
 
 
-def run_all_rules(landmarks, baseline, is_squatting=False, hip_y_history=None, shoulder_y_history=None):
+def run_all_rules(landmarks, baseline, is_squatting=False, hip_y_history=None, shoulder_y_history=None, view=None):
     """
     Run all profile-aware posture rules and return detected issues and the view type.
     Returns:
@@ -301,8 +341,9 @@ def run_all_rules(landmarks, baseline, is_squatting=False, hip_y_history=None, s
     """
     issues = []
 
-    # 1. Detect view profile dynamically (always calculated so HUD displays it even if standing)
-    view = get_viewing_angle(landmarks)
+    # 1. Detect view profile dynamically if not provided
+    if view is None:
+        view = get_viewing_angle(landmarks)
     body_h = get_body_height(landmarks)
 
     if not is_squatting:

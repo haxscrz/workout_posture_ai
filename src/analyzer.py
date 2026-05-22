@@ -121,18 +121,40 @@ class SquatAnalyzer:
         )
         landmarks = self.smoothed_landmarks
 
-        # Check visibility
-        if not are_landmarks_visible(landmarks, REQUIRED_LANDMARKS):
+        # Check visibility: require at least one side of the body (shoulder to ankle) to be visible
+        l_shoulder = get_lm(landmarks, LM_LEFT_SHOULDER)
+        l_hip = get_lm(landmarks, LM_LEFT_HIP)
+        l_knee = get_lm(landmarks, LM_LEFT_KNEE)
+        l_ankle = get_lm(landmarks, LM_LEFT_ANKLE)
+
+        r_shoulder = get_lm(landmarks, LM_RIGHT_SHOULDER)
+        r_hip = get_lm(landmarks, LM_RIGHT_HIP)
+        r_knee = get_lm(landmarks, LM_RIGHT_KNEE)
+        r_ankle = get_lm(landmarks, LM_RIGHT_ANKLE)
+
+        left_side_visible = all(pt is not None for pt in [l_shoulder, l_hip, l_knee, l_ankle])
+        right_side_visible = all(pt is not None for pt in [r_shoulder, r_hip, r_knee, r_ankle])
+
+        if not (left_side_visible or right_side_visible):
             return {
                 "state": self.state,
                 "landmarks": landmarks,
-                "issues": [{"code": "VISIBILITY", "message": "Full body must be visible (hips to ankles).", "severity": "info", "joints": []}],
+                "issues": [{"code": "VISIBILITY", "message": "At least one side of the body (shoulder to ankle) must be visible.", "severity": "info", "joints": []}],
                 "rep_counted": False,
             }
 
-        # Compute hip-knee depth ratio for state machine
-        mid_hip = midpoint(get_lm(landmarks, LM_LEFT_HIP), get_lm(landmarks, LM_RIGHT_HIP))
-        mid_knee = midpoint(get_lm(landmarks, LM_LEFT_KNEE), get_lm(landmarks, LM_RIGHT_KNEE))
+        # Resolve hip reference point (midpoint if both visible, else the visible one)
+        if l_hip and r_hip:
+            mid_hip = midpoint(l_hip, r_hip)
+        else:
+            mid_hip = l_hip or r_hip
+
+        # Resolve knee reference point (midpoint if both visible, else the visible one)
+        if l_knee and r_knee:
+            mid_knee = midpoint(l_knee, r_knee)
+        else:
+            mid_knee = l_knee or r_knee
+
         body_h = get_body_height(landmarks)
 
         if mid_hip is None or mid_knee is None:
@@ -141,8 +163,11 @@ class SquatAnalyzer:
         hip_knee_dist = (mid_knee["y"] - mid_hip["y"]) / body_h
         is_squatting = hip_knee_dist < STANDING_HIP_KNEE_RATIO - 0.02
 
-        # Get shoulder midpoint for rate-of-ascent (lifting butt first) check
-        mid_shoulder = midpoint(get_lm(landmarks, LM_LEFT_SHOULDER), get_lm(landmarks, LM_RIGHT_SHOULDER))
+        # Resolve shoulder reference point (midpoint if both visible, else the visible one)
+        if l_shoulder and r_shoulder:
+            mid_shoulder = midpoint(l_shoulder, r_shoulder)
+        else:
+            mid_shoulder = l_shoulder or r_shoulder
 
         # Update rolling histories
         if mid_hip and mid_shoulder:
@@ -153,9 +178,15 @@ class SquatAnalyzer:
                 self.shoulder_y_history.pop(0)
 
         # ── Run rules ──
-        self.current_issues, self.current_view = run_all_rules(
+        # Freeze camera view profile during active squatting to prevent squat postures distorting view detection
+        if self.state != "SQUATTING" or not getattr(self, "current_view", None):
+            from src.rules import get_viewing_angle
+            self.current_view = get_viewing_angle(landmarks)
+
+        self.current_issues, _ = run_all_rules(
             landmarks, self.baseline, is_squatting,
-            self.hip_y_history, self.shoulder_y_history
+            self.hip_y_history, self.shoulder_y_history,
+            view=self.current_view
         )
 
         # ── Run ML ──

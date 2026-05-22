@@ -127,16 +127,16 @@ FEATURE_NAMES = [
 
 # ─── Hard-Coded Rule Thresholds ──────────────────────────────────────────────
 THRESH_KNEE_CAVE       = 0.12   # Knee inward as fraction of body width
-THRESH_FORWARD_LEAN    = 50.0   # Trunk angle from vertical (degrees)
-THRESH_HEEL_RISE       = 0.04   # Heel Y change as fraction of body height
+THRESH_FORWARD_LEAN    = 33.0   # Trunk angle from vertical (degrees)
+THRESH_HEEL_RISE       = 0.02   # Heel Y change as fraction of body height
 THRESH_KNEES_OVER_TOES = 0.15   # Knee Z past foot-index Z (very relaxed — Z unreliable)
-THRESH_SHALLOW_DEPTH   = 0.18   # Hip-knee ratio for parallel
+THRESH_SHALLOW_DEPTH   = 0.09   # Hip-knee ratio for parallel
 THRESH_UNEVEN_HIP      = 0.06   # Hip Y diff as fraction of body height
 THRESH_UNEVEN_KNEE     = 25.0   # Knee angle difference in degrees
 
 # ─── Rep Detection State Machine ─────────────────────────────────────────────
-STANDING_HIP_KNEE_RATIO = 0.23
-SQUAT_HIP_KNEE_RATIO    = 0.15
+STANDING_HIP_KNEE_RATIO = 0.25
+SQUAT_HIP_KNEE_RATIO    = 0.20
 
 # ─── Model Training ──────────────────────────────────────────────────────────
 TRAIN_EPOCHS        = 100
