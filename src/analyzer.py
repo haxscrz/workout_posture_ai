@@ -28,6 +28,7 @@ from src.config import (
     LM_LEFT_KNEE, LM_RIGHT_KNEE,
     LM_LEFT_FOOT_INDEX, LM_RIGHT_FOOT_INDEX,
     LM_LEFT_SHOULDER, LM_RIGHT_SHOULDER,
+    LM_LEFT_ANKLE, LM_RIGHT_ANKLE,
     STANDING_HIP_KNEE_RATIO, SQUAT_HIP_KNEE_RATIO,
     SMOOTHING_ALPHA, ML_CONFIDENCE_THRESHOLD,
 )
@@ -55,6 +56,7 @@ class SquatAnalyzer:
         # Per-rep tracking
         self.rep_issues = []
         self.min_hip_depth = None
+        self.rep_frame_count = 0
 
         # Baseline (set at first standing position)
         self.baseline = {}
@@ -215,6 +217,7 @@ class SquatAnalyzer:
                 self.min_hip_depth = hip_knee_dist
 
         elif self.state == "SQUATTING":
+            self.rep_frame_count += 1
             # Track deepest point
             if self.min_hip_depth is None or hip_knee_dist < self.min_hip_depth:
                 self.min_hip_depth = hip_knee_dist
@@ -255,33 +258,29 @@ class SquatAnalyzer:
         }
 
     def _set_baseline(self, landmarks):
-        """Set heel and foot baseline from standing position."""
-        l_heel = get_lm(landmarks, LM_LEFT_HEEL)
-        r_heel = get_lm(landmarks, LM_RIGHT_HEEL)
-        l_foot = get_lm(landmarks, LM_LEFT_FOOT_INDEX)
-        r_foot = get_lm(landmarks, LM_RIGHT_FOOT_INDEX)
-        
-        if l_heel:
-            self.baseline["left_heel_y"] = l_heel["y"]
-        if r_heel:
-            self.baseline["right_heel_y"] = r_heel["y"]
-        if l_foot:
-            self.baseline["left_foot_y"] = l_foot["y"]
-        if r_foot:
-            self.baseline["right_foot_y"] = r_foot["y"]
+        """Set heel and foot baseline from standing position using raw coordinates."""
+        if landmarks is None or len(landmarks) < 33:
+            return
+        self.baseline["left_heel_y"] = landmarks[LM_LEFT_HEEL]["y"]
+        self.baseline["right_heel_y"] = landmarks[LM_RIGHT_HEEL]["y"]
+        self.baseline["left_foot_y"] = landmarks[LM_LEFT_FOOT_INDEX]["y"]
+        self.baseline["right_foot_y"] = landmarks[LM_RIGHT_FOOT_INDEX]["y"]
 
     def _start_new_rep(self):
         """Reset per-rep tracking."""
         self.rep_issues = []
         self.min_hip_depth = None
+        self.rep_frame_count = 0
 
     def _score_rep(self):
         """
         Score the current rep based on accumulated issues.
-        Uses unique issue codes with a minimum frequency threshold
-        to avoid penalizing single-frame noise.
+        Uses unique issue codes with a dynamic, frame-rate and rep-length aware
+        frequency threshold to avoid penalizing single-frame noise.
         """
-        MIN_FRAMES = 10  # Issue must appear on 10+ frames to count
+        # Dynamic noise threshold: 15% of rep duration, minimum 3 frames.
+        # SHALLOW_DEPTH is a rep-level assessment made once at the end, so it bypasses this filter.
+        min_err_frames = max(3, int(self.rep_frame_count * 0.15))
 
         # Count frames per issue code
         code_counts = {}
@@ -291,12 +290,16 @@ class SquatAnalyzer:
             code_counts[code] = code_counts.get(code, 0) + 1
             code_severity[code] = issue.get("severity", "warning")
 
-        # Only count issues that persisted across multiple frames
+        # Only count issues that persisted across multiple frames or are rep-level assessments
         real_errors = 0
         real_warnings = 0
         for code, count in code_counts.items():
-            if count < MIN_FRAMES:
+            if code == "SHALLOW_DEPTH":
+                # Bypass noise filtering for rep-level depth assessment
+                pass
+            elif count < min_err_frames:
                 continue  # Transient noise, ignore
+
             if code_severity[code] == "error":
                 real_errors += 1
             else:
@@ -343,6 +346,7 @@ class SquatAnalyzer:
         self.poor_reps = 0
         self.rep_issues = []
         self.min_hip_depth = None
+        self.rep_frame_count = 0
         self.baseline = {}
         self.smoothed_landmarks = None
         self.frame_buffer = []

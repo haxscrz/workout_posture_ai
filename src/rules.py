@@ -24,39 +24,21 @@ def get_viewing_angle(landmarks):
     """
     Determine the camera viewing profile: 'side', 'oblique', or 'front'.
     Compares the horizontal width of hips/shoulders to torso trunk length in 2D.
+    Uses raw landmark coordinates directly for maximum view-stabilization.
     """
-    l_hip = get_lm(landmarks, LM_LEFT_HIP)
-    r_hip = get_lm(landmarks, LM_RIGHT_HIP)
-    l_shoulder = get_lm(landmarks, LM_LEFT_SHOULDER)
-    r_shoulder = get_lm(landmarks, LM_RIGHT_SHOULDER)
-    
-    if not (l_hip or r_hip) or not (l_shoulder or r_shoulder):
-        return 'front'  # Fallback
-
-    # Use single side widths if one side is obscured
-    if l_hip and r_hip:
-        hip_w = abs(l_hip["x"] - r_hip["x"])
-    else:
-        hip_w = 0.05  # Approximate side-view fallback
-
-    if l_shoulder and r_shoulder:
-        shoulder_w = abs(l_shoulder["x"] - r_shoulder["x"])
-    else:
-        shoulder_w = 0.05  # Approximate side-view fallback
-    
-    # Resolve shoulder and hip points for trunk length computation
-    if l_shoulder and r_shoulder:
-        shoulder_pt = midpoint(l_shoulder, r_shoulder)
-    else:
-        shoulder_pt = l_shoulder or r_shoulder
-
-    if l_hip and r_hip:
-        hip_pt = midpoint(l_hip, r_hip)
-    else:
-        hip_pt = l_hip or r_hip
-
-    if shoulder_pt is None or hip_pt is None:
+    if landmarks is None or len(landmarks) < 33:
         return 'front'
+
+    l_hip = landmarks[LM_LEFT_HIP]
+    r_hip = landmarks[LM_RIGHT_HIP]
+    l_shoulder = landmarks[LM_LEFT_SHOULDER]
+    r_shoulder = landmarks[LM_RIGHT_SHOULDER]
+
+    hip_w = abs(l_hip["x"] - r_hip["x"])
+    shoulder_w = abs(l_shoulder["x"] - r_shoulder["x"])
+    
+    shoulder_pt = {"x": (l_shoulder["x"] + r_shoulder["x"]) / 2, "y": (l_shoulder["y"] + r_shoulder["y"]) / 2}
+    hip_pt = {"x": (l_hip["x"] + r_hip["x"]) / 2, "y": (l_hip["y"] + r_hip["y"]) / 2}
 
     dx = shoulder_pt["x"] - hip_pt["x"]
     dy = shoulder_pt["y"] - hip_pt["y"]
@@ -66,9 +48,9 @@ def get_viewing_angle(landmarks):
         return 'front'
         
     ratio = max(hip_w, shoulder_w) / trunk_len
-    if ratio < 0.35:
+    if ratio < 0.15:
         return 'side'
-    elif ratio < 0.65:
+    elif ratio < 0.38:
         return 'oblique'
     else:
         return 'front'
@@ -188,20 +170,21 @@ def check_heel_rise(landmarks, baseline):
     """
     Detect heels lifting off the floor.
     Self-calibrating: tracks (foot_y - heel_y) compared to standing baseline.
+    Uses raw coordinate indexing for maximum reliability.
     """
-    if not baseline:
+    if not baseline or landmarks is None or len(landmarks) < 33:
         return None
 
     body_h = get_body_height(landmarks)
     rising = False
 
-    l_heel = get_lm(landmarks, LM_LEFT_HEEL)
-    l_foot = get_lm(landmarks, LM_LEFT_FOOT_INDEX)
-    r_heel = get_lm(landmarks, LM_RIGHT_HEEL)
-    r_foot = get_lm(landmarks, LM_RIGHT_FOOT_INDEX)
+    l_heel = landmarks[LM_LEFT_HEEL]
+    l_foot = landmarks[LM_LEFT_FOOT_INDEX]
+    r_heel = landmarks[LM_RIGHT_HEEL]
+    r_foot = landmarks[LM_RIGHT_FOOT_INDEX]
 
     # Left side
-    if l_heel and l_foot and baseline.get("left_heel_y") is not None and baseline.get("left_foot_y") is not None:
+    if baseline.get("left_heel_y") is not None and baseline.get("left_foot_y") is not None:
         baseline_diff = baseline["left_foot_y"] - baseline["left_heel_y"]
         current_diff = l_foot["y"] - l_heel["y"]
         # If heel rises, it moves up (Y decreases), so current_diff increases
@@ -209,7 +192,7 @@ def check_heel_rise(landmarks, baseline):
             rising = True
 
     # Right side
-    if r_heel and r_foot and baseline.get("right_heel_y") is not None and baseline.get("right_foot_y") is not None:
+    if baseline.get("right_heel_y") is not None and baseline.get("right_foot_y") is not None:
         baseline_diff = baseline["right_foot_y"] - baseline["right_heel_y"]
         current_diff = r_foot["y"] - r_heel["y"]
         if current_diff - baseline_diff > body_h * THRESH_HEEL_RISE:
