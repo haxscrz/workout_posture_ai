@@ -1,12 +1,8 @@
 """
 rules.py — Hard-coded squat posture rules.
 
-Six rule functions that detect specific form errors using geometric
-relationships between landmarks. These provide immediate, explainable
-feedback alongside the ML model predictions.
-
-Each function returns None (no issue) or a dict:
-  {"code": str, "message": str, "severity": "error"|"warning", "joints": list[int]}
+Mathematically robust, profile-aware posture checks that detect form errors
+using relative geometric relationships. Supports front, side, and oblique views.
 """
 
 import math
@@ -24,43 +20,74 @@ from src.config import (
 from src.utils import get_lm, midpoint, compute_angle, get_body_height, get_body_width
 
 
-def check_knee_cave(landmarks):
+def get_viewing_angle(landmarks):
+    """
+    Determine the camera viewing profile: 'side', 'oblique', or 'front'.
+    Compares the horizontal width of hips/shoulders to torso height.
+    """
+    l_hip = get_lm(landmarks, LM_LEFT_HIP)
+    r_hip = get_lm(landmarks, LM_RIGHT_HIP)
+    l_shoulder = get_lm(landmarks, LM_LEFT_SHOULDER)
+    r_shoulder = get_lm(landmarks, LM_RIGHT_SHOULDER)
+    
+    if not (l_hip and r_hip and l_shoulder and r_shoulder):
+        return 'front'  # Fallback
+
+    hip_w = abs(l_hip["x"] - r_hip["x"])
+    shoulder_w = abs(l_shoulder["x"] - r_shoulder["x"])
+    
+    mid_hip = midpoint(l_hip, r_hip)
+    mid_shoulder = midpoint(l_shoulder, r_shoulder)
+    torso_h = abs(mid_shoulder["y"] - mid_hip["y"])
+    
+    if torso_h < 1e-5:
+        return 'front'
+        
+    ratio = max(hip_w, shoulder_w) / torso_h
+    if ratio < 0.28:
+        return 'side'
+    elif ratio < 0.65:
+        return 'oblique'
+    else:
+        return 'front'
+
+
+def check_knee_cave(landmarks, view='front'):
     """
     Detect knees collapsing inward (valgus).
-    Compares each knee's X distance from hip center vs ankle's X distance.
-    If knee is significantly closer to center than ankle → knee cave.
+    Only reliable in front or oblique views.
+    Compares knee horizontal X to ankle horizontal X.
     """
-    mid_hip = midpoint(get_lm(landmarks, LM_LEFT_HIP), get_lm(landmarks, LM_RIGHT_HIP))
-    if mid_hip is None:
+    if view == 'side':
         return None
 
     body_w = get_body_width(landmarks)
     issues = []
 
-    # Left knee
     l_knee  = get_lm(landmarks, LM_LEFT_KNEE)
     l_ankle = get_lm(landmarks, LM_LEFT_ANKLE)
+    r_knee  = get_lm(landmarks, LM_RIGHT_KNEE)
+    r_ankle = get_lm(landmarks, LM_RIGHT_ANKLE)
+
+    # MediaPipe coordinate space: X increases from screen left to screen right.
+    # Left body parts are on screen right (larger X), Right body parts on screen left (smaller X).
+    
+    # Left knee cave: Left knee moves inward (screen-left, smaller X) relative to left ankle
     if l_knee and l_ankle:
-        knee_dist  = abs(l_knee["x"] - mid_hip["x"])
-        ankle_dist = abs(l_ankle["x"] - mid_hip["x"])
-        if knee_dist < ankle_dist - body_w * THRESH_KNEE_CAVE:
+        if l_knee["x"] < l_ankle["x"] - body_w * THRESH_KNEE_CAVE:
             issues.append({
                 "code": "KNEE_CAVE",
-                "message": "Push your LEFT knee outward — it's caving in.",
+                "message": "Push your LEFT knee outward — it's collapsing inward.",
                 "severity": "error",
                 "joints": [LM_LEFT_KNEE, LM_LEFT_ANKLE],
             })
 
-    # Right knee
-    r_knee  = get_lm(landmarks, LM_RIGHT_KNEE)
-    r_ankle = get_lm(landmarks, LM_RIGHT_ANKLE)
+    # Right knee cave: Right knee moves inward (screen-right, larger X) relative to right ankle
     if r_knee and r_ankle:
-        knee_dist  = abs(r_knee["x"] - mid_hip["x"])
-        ankle_dist = abs(r_ankle["x"] - mid_hip["x"])
-        if knee_dist < ankle_dist - body_w * THRESH_KNEE_CAVE:
+        if r_knee["x"] > r_ankle["x"] + body_w * THRESH_KNEE_CAVE:
             issues.append({
                 "code": "KNEE_CAVE",
-                "message": "Push your RIGHT knee outward — it's caving in.",
+                "message": "Push your RIGHT knee outward — it's collapsing inward.",
                 "severity": "error",
                 "joints": [LM_RIGHT_KNEE, LM_RIGHT_ANKLE],
             })
@@ -71,21 +98,16 @@ def check_knee_cave(landmarks):
 def check_forward_lean(landmarks):
     """
     Detect excessive forward lean.
-    Measures the angle of the trunk (shoulder→hip) from vertical.
+    Measures torso angle from vertical.
     """
-    mid_shoulder = midpoint(
-        get_lm(landmarks, LM_LEFT_SHOULDER),
-        get_lm(landmarks, LM_RIGHT_SHOULDER),
-    )
-    mid_hip = midpoint(
-        get_lm(landmarks, LM_LEFT_HIP),
-        get_lm(landmarks, LM_RIGHT_HIP),
-    )
+    mid_shoulder = midpoint(get_lm(landmarks, LM_LEFT_SHOULDER), get_lm(landmarks, LM_RIGHT_SHOULDER))
+    mid_hip = midpoint(get_lm(landmarks, LM_LEFT_HIP), get_lm(landmarks, LM_RIGHT_HIP))
+    
     if mid_shoulder is None or mid_hip is None:
         return None
 
     dx = mid_shoulder["x"] - mid_hip["x"]
-    dy = mid_shoulder["y"] - mid_hip["y"]  # Y goes down in image coords
+    dy = mid_shoulder["y"] - mid_hip["y"]  # Y increases downwards
     trunk_len = math.sqrt(dx * dx + dy * dy)
     if trunk_len < 1e-6:
         return None
@@ -97,18 +119,41 @@ def check_forward_lean(landmarks):
     if trunk_angle > THRESH_FORWARD_LEAN:
         return [{
             "code": "FORWARD_LEAN",
-            "message": f"Chest up — you're leaning forward ({trunk_angle:.0f}°).",
+            "message": f"Chest up — you're leaning forward too much ({trunk_angle:.0f}°).",
             "severity": "error",
             "joints": [LM_LEFT_SHOULDER, LM_RIGHT_SHOULDER, LM_LEFT_HIP, LM_RIGHT_HIP],
         }]
     return None
 
 
+def check_butt_first(hip_y_history, shoulder_y_history, body_h):
+    """
+    Detect "Lifting Butt First" (Good Morning squat / hips rising too fast).
+    Triggers if hips rise significantly while shoulders stay flat/drop during ascent.
+    """
+    if not hip_y_history or not shoulder_y_history or len(hip_y_history) < 6:
+        return None
+
+    # Delta from oldest (history[0]) to newest (history[-1]) in frame buffer.
+    # In screen coordinates, Y decreases as body parts move UP.
+    hip_rise = hip_y_history[0] - hip_y_history[-1]
+    shoulder_rise = shoulder_y_history[0] - shoulder_y_history[-1]
+
+    # If hips moved up by > 2.5% of body height, but shoulders did not rise (or fell)
+    if hip_rise > 0.025 * body_h and shoulder_rise < 0.005 * body_h:
+        return [{
+            "code": "FORWARD_LEAN",  # Map to FORWARD_LEAN for ML compatibility
+            "message": "Lifting butt first! Keep your chest and hips rising together.",
+            "severity": "error",
+            "joints": [LM_LEFT_HIP, LM_RIGHT_HIP, LM_LEFT_SHOULDER, LM_RIGHT_SHOULDER],
+        }]
+    return None
+
+
 def check_heel_rise(landmarks, baseline):
     """
-    Detect heels lifting off the ground.
-    Compares current heel Y to standing baseline Y.
-    In image coords, Y decreasing = heel rising.
+    Detect heels lifting off the floor.
+    Self-calibrating: tracks (foot_y - heel_y) compared to standing baseline.
     """
     if not baseline:
         return None
@@ -117,55 +162,74 @@ def check_heel_rise(landmarks, baseline):
     rising = False
 
     l_heel = get_lm(landmarks, LM_LEFT_HEEL)
-    if l_heel and baseline.get("left_heel_y") is not None:
-        delta = l_heel["y"] - baseline["left_heel_y"]
-        if delta < -body_h * THRESH_HEEL_RISE:
+    l_foot = get_lm(landmarks, LM_LEFT_FOOT_INDEX)
+    r_heel = get_lm(landmarks, LM_RIGHT_HEEL)
+    r_foot = get_lm(landmarks, LM_RIGHT_FOOT_INDEX)
+
+    # Left side
+    if l_heel and l_foot and baseline.get("left_heel_y") is not None and baseline.get("left_foot_y") is not None:
+        baseline_diff = baseline["left_foot_y"] - baseline["left_heel_y"]
+        current_diff = l_foot["y"] - l_heel["y"]
+        # If heel rises, it moves up (Y decreases), so current_diff increases
+        if current_diff - baseline_diff > body_h * THRESH_HEEL_RISE:
             rising = True
 
-    r_heel = get_lm(landmarks, LM_RIGHT_HEEL)
-    if r_heel and baseline.get("right_heel_y") is not None:
-        delta = r_heel["y"] - baseline["right_heel_y"]
-        if delta < -body_h * THRESH_HEEL_RISE:
+    # Right side
+    if r_heel and r_foot and baseline.get("right_heel_y") is not None and baseline.get("right_foot_y") is not None:
+        baseline_diff = baseline["right_foot_y"] - baseline["right_heel_y"]
+        current_diff = r_foot["y"] - r_heel["y"]
+        if current_diff - baseline_diff > body_h * THRESH_HEEL_RISE:
             rising = True
 
     if rising:
         return [{
             "code": "HEEL_RISE",
-            "message": "Keep your heels flat on the ground.",
+            "message": "Keep your heels flat on the floor.",
             "severity": "warning",
             "joints": [LM_LEFT_HEEL, LM_RIGHT_HEEL, LM_LEFT_ANKLE, LM_RIGHT_ANKLE],
         }]
     return None
 
 
-def check_knees_over_toes(landmarks):
+def check_knees_over_toes(landmarks, view='front'):
     """
-    Detect knees extending too far past the toes.
-    Uses the Z-axis depth: if knee Z is significantly ahead of foot index Z.
+    Detect knees extending past the toes.
+    Sagittal plane metric: Only run in side view (ignores noisy Z coordinates).
     """
+    if view != 'side':
+        return None
+
     l_knee = get_lm(landmarks, LM_LEFT_KNEE)
     r_knee = get_lm(landmarks, LM_RIGHT_KNEE)
+    l_ankle = get_lm(landmarks, LM_LEFT_ANKLE)
+    r_ankle = get_lm(landmarks, LM_RIGHT_ANKLE)
     l_foot = get_lm(landmarks, LM_LEFT_FOOT_INDEX)
     r_foot = get_lm(landmarks, LM_RIGHT_FOOT_INDEX)
 
-    if not l_knee or not r_knee:
+    if not (l_knee and r_knee and l_ankle and r_ankle and l_foot and r_foot):
         return None
 
+    body_h = get_body_height(landmarks)
     over = False
-    # Z is negative when closer to camera. Knee forward = more negative Z.
-    if l_foot:
-        if l_knee.get("z", 0) - l_foot.get("z", 0) < -THRESH_KNEES_OVER_TOES:
+
+    # Choose leg facing camera / most visible
+    # Detect facing direction: if foot index X > ankle X, user is facing right.
+    # Otherwise, user is facing left.
+    if l_foot["x"] > l_ankle["x"]:
+        # Facing right: knee X should not pass foot X to the right
+        if l_knee["x"] - l_foot["x"] > body_h * THRESH_KNEES_OVER_TOES:
             over = True
-    if r_foot:
-        if r_knee.get("z", 0) - r_foot.get("z", 0) < -THRESH_KNEES_OVER_TOES:
+    else:
+        # Facing left: knee X should not pass foot X to the left
+        if l_foot["x"] - l_knee["x"] > body_h * THRESH_KNEES_OVER_TOES:
             over = True
 
     if over:
         return [{
             "code": "KNEES_OVER_TOES",
-            "message": "Sit back more — your knees are going past your toes.",
+            "message": "Sit back more — your knees are drifting past your toes.",
             "severity": "warning",
-            "joints": [LM_LEFT_KNEE, LM_RIGHT_KNEE, LM_LEFT_FOOT_INDEX, LM_RIGHT_FOOT_INDEX],
+            "joints": [LM_LEFT_KNEE, LM_LEFT_FOOT_INDEX],
         }]
     return None
 
@@ -173,24 +237,26 @@ def check_knees_over_toes(landmarks):
 def check_shallow_depth(hip_depth_ratio):
     """
     Detect insufficient squat depth.
-    Called at the end of a rep with the minimum hip_depth_ratio from the squat.
     Lower ratio = deeper squat. Above threshold = too shallow.
     """
     if hip_depth_ratio is not None and hip_depth_ratio > THRESH_SHALLOW_DEPTH:
         return [{
             "code": "SHALLOW_DEPTH",
-            "message": "Go deeper — aim for thighs parallel to the ground.",
+            "message": "Go deeper — try to get your thighs parallel to the floor.",
             "severity": "warning",
             "joints": [LM_LEFT_HIP, LM_RIGHT_HIP],
         }]
     return None
 
 
-def check_uneven_weight(landmarks):
+def check_uneven_weight(landmarks, view='front'):
     """
     Detect asymmetric weight distribution.
-    Checks hip height difference and knee angle asymmetry.
+    Only reliable in front or oblique views.
     """
+    if view == 'side':
+        return None
+
     l_hip   = get_lm(landmarks, LM_LEFT_HIP)
     r_hip   = get_lm(landmarks, LM_RIGHT_HIP)
     l_knee  = get_lm(landmarks, LM_LEFT_KNEE)
@@ -219,7 +285,7 @@ def check_uneven_weight(landmarks):
     if abs(l_angle - r_angle) > THRESH_UNEVEN_KNEE:
         return [{
             "code": "UNEVEN_WEIGHT",
-            "message": "Bend both knees equally — weight is uneven.",
+            "message": "Bend both knees equally — weight distribution is uneven.",
             "severity": "warning",
             "joints": [LM_LEFT_KNEE, LM_RIGHT_KNEE],
         }]
@@ -227,32 +293,42 @@ def check_uneven_weight(landmarks):
     return None
 
 
-def run_all_rules(landmarks, baseline, is_squatting=False, min_hip_depth=None):
+def run_all_rules(landmarks, baseline, is_squatting=False, hip_y_history=None, shoulder_y_history=None):
     """
-    Run all posture rules and return a list of issue dicts.
-
-    Args:
-        landmarks: list[dict] of 33 landmarks.
-        baseline: dict with heel baseline Y values.
-        is_squatting: whether user is currently in squat position.
-        min_hip_depth: minimum hip depth ratio during current rep (for depth check).
-
-    Returns:
-        list[dict] of detected issues.
+    Run all profile-aware posture rules and return detected issues.
     """
     issues = []
 
     if not is_squatting:
         return issues
 
-    # Only check form during the squat phase
-    for check_fn in [check_knee_cave, check_forward_lean, check_knees_over_toes, check_uneven_weight]:
-        result = check_fn(landmarks)
-        if result:
-            issues.extend(result)
+    # 1. Detect view profile dynamically
+    view = get_viewing_angle(landmarks)
+    body_h = get_body_height(landmarks)
 
-    # Heel rise needs baseline
+    # 2. Run standard lateral & transverse posture rules
+    result = check_knee_cave(landmarks, view)
+    if result:
+        issues.extend(result)
+
+    result = check_forward_lean(landmarks)
+    if result:
+        issues.extend(result)
+
     result = check_heel_rise(landmarks, baseline)
+    if result:
+        issues.extend(result)
+
+    result = check_knees_over_toes(landmarks, view)
+    if result:
+        issues.extend(result)
+
+    result = check_uneven_weight(landmarks, view)
+    if result:
+        issues.extend(result)
+
+    # 3. Kinetic rules (Butt First)
+    result = check_butt_first(hip_y_history, shoulder_y_history, body_h)
     if result:
         issues.extend(result)
 

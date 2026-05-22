@@ -26,6 +26,8 @@ from src.config import (
     LM_LEFT_HEEL, LM_RIGHT_HEEL,
     LM_LEFT_HIP, LM_RIGHT_HIP,
     LM_LEFT_KNEE, LM_RIGHT_KNEE,
+    LM_LEFT_FOOT_INDEX, LM_RIGHT_FOOT_INDEX,
+    LM_LEFT_SHOULDER, LM_RIGHT_SHOULDER,
     STANDING_HIP_KNEE_RATIO, SQUAT_HIP_KNEE_RATIO,
     SMOOTHING_ALPHA, ML_CONFIDENCE_THRESHOLD,
 )
@@ -66,6 +68,10 @@ class SquatAnalyzer:
         self.ml_ready = False
         self.frame_buffer = []
         self.ml_prediction = None  # Latest: {"label": str, "confidence": float}
+
+        # Rolling coordinate histories for rate-of-change posture rules
+        self.hip_y_history = []
+        self.shoulder_y_history = []
 
         # Current frame state
         self.current_issues = []
@@ -132,8 +138,22 @@ class SquatAnalyzer:
         hip_knee_dist = (mid_knee["y"] - mid_hip["y"]) / body_h
         is_squatting = hip_knee_dist < STANDING_HIP_KNEE_RATIO - 0.02
 
+        # Get shoulder midpoint for rate-of-ascent (lifting butt first) check
+        mid_shoulder = midpoint(get_lm(landmarks, LM_LEFT_SHOULDER), get_lm(landmarks, LM_RIGHT_SHOULDER))
+
+        # Update rolling histories
+        if mid_hip and mid_shoulder:
+            self.hip_y_history.append(mid_hip["y"])
+            self.shoulder_y_history.append(mid_shoulder["y"])
+            if len(self.hip_y_history) > 10:
+                self.hip_y_history.pop(0)
+                self.shoulder_y_history.pop(0)
+
         # ── Run rules ──
-        self.current_issues = run_all_rules(landmarks, self.baseline, is_squatting)
+        self.current_issues = run_all_rules(
+            landmarks, self.baseline, is_squatting,
+            self.hip_y_history, self.shoulder_y_history
+        )
 
         # ── Run ML ──
         if self.ml_ready:
@@ -201,13 +221,20 @@ class SquatAnalyzer:
         }
 
     def _set_baseline(self, landmarks):
-        """Set heel baseline from standing position."""
+        """Set heel and foot baseline from standing position."""
         l_heel = get_lm(landmarks, LM_LEFT_HEEL)
         r_heel = get_lm(landmarks, LM_RIGHT_HEEL)
+        l_foot = get_lm(landmarks, LM_LEFT_FOOT_INDEX)
+        r_foot = get_lm(landmarks, LM_RIGHT_FOOT_INDEX)
+        
         if l_heel:
             self.baseline["left_heel_y"] = l_heel["y"]
         if r_heel:
             self.baseline["right_heel_y"] = r_heel["y"]
+        if l_foot:
+            self.baseline["left_foot_y"] = l_foot["y"]
+        if r_foot:
+            self.baseline["right_foot_y"] = r_foot["y"]
 
     def _start_new_rep(self):
         """Reset per-rep tracking."""
@@ -250,9 +277,9 @@ class SquatAnalyzer:
     def _run_ml_inference(self):
         """Run ML model on current frame buffer."""
         try:
-            import tensorflow as tf
             input_data = np.array([self.frame_buffer], dtype=np.float32)
-            probs = self.ml_model.predict(input_data, verbose=0)[0]
+            # Call model directly as callable for 10x faster execution (avoids Keras predict overhead)
+            probs = self.ml_model(input_data, training=False).numpy()[0]
 
             max_idx = int(np.argmax(probs))
             label = self.ml_labels[max_idx]
@@ -286,6 +313,8 @@ class SquatAnalyzer:
         self.smoothed_landmarks = None
         self.frame_buffer = []
         self.ml_prediction = None
+        self.hip_y_history = []
+        self.shoulder_y_history = []
         self.current_issues = []
         self.last_rep_quality = None
 
