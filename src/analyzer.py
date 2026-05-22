@@ -521,8 +521,19 @@ def run_camera(source=0, rotate=0):
 
     current_source = source
     current_rotation = rotate
-    print("  Camera opened. Starting analysis...")
-    print("  Press Q or ESC to quit, R to reset, C to change camera, O to rotate.\n")
+    # Query screen dimensions using tkinter to make portrait video as large as possible
+    screen_width = 1920
+    screen_height = 1080  # Default fallbacks
+    try:
+        import tkinter as tk
+        root = tk.Tk()
+        root.withdraw()
+        screen_width = root.winfo_screenwidth()
+        screen_height = root.winfo_screenheight()
+        root.destroy()
+        print(f"  [UI] Detected screen resolution: {screen_width}x{screen_height}")
+    except Exception:
+        pass
 
     # Create a normal resizable window so we can control scale and prevent clipping
     cv2.namedWindow("Squat Posture AI", cv2.WINDOW_NORMAL)
@@ -576,12 +587,15 @@ def run_camera(source=0, rotate=0):
                         cv2.FONT_HERSHEY_SIMPLEX, 0.5, COLOR_GREEN, 1)
 
             # Resize the OpenCV window dynamically if the frame is in portrait layout
-            # (height > width) so it fits on landscape monitors without clipping the bottom panel.
+            # (height > width) so it is as large as possible to fit on the screen.
             fh, fw = frame.shape[:2]
             if fh > fw:
-                # Tall portrait mode: scale down height to 750px and compute proportional width
-                display_h = 750
-                display_w = int(fw * (display_h / fh))
+                # Tall portrait mode: scale to fit the screen height and width as much as possible
+                max_h = screen_height - 120  # leave 120px for taskbar + window title bar
+                max_w = screen_width - 80    # leave 80px for margins
+                scale = min(max_w / fw, max_h / fh)
+                display_w = int(fw * scale)
+                display_h = int(fh * scale)
                 cv2.resizeWindow("Squat Posture AI", display_w, display_h)
             else:
                 # Normal landscape mode
