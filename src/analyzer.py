@@ -73,6 +73,9 @@ class SquatAnalyzer:
         self.hip_y_history = []
         self.shoulder_y_history = []
 
+        # Current camera view angle profile
+        self.current_view = "front"
+
         # Current frame state
         self.current_issues = []
         self.last_rep_quality = None
@@ -150,7 +153,7 @@ class SquatAnalyzer:
                 self.shoulder_y_history.pop(0)
 
         # ── Run rules ──
-        self.current_issues = run_all_rules(
+        self.current_issues, self.current_view = run_all_rules(
             landmarks, self.baseline, is_squatting,
             self.hip_y_history, self.shoulder_y_history
         )
@@ -315,6 +318,7 @@ class SquatAnalyzer:
         self.ml_prediction = None
         self.hip_y_history = []
         self.shoulder_y_history = []
+        self.current_view = "front"
         self.current_issues = []
         self.last_rep_quality = None
 
@@ -418,6 +422,51 @@ def draw_ui(frame, analyzer):
             cv2.putText(frame, text, (15, y_pos),
                         cv2.FONT_HERSHEY_SIMPLEX, 0.55, color, 2)
 
+    # ── Camera View Guide HUD Card (Upper Right) ──
+    # Draw a nice semi-transparent card showing camera profile and active rules
+    card_w, card_h = 320, 110
+    card_x, card_y = w - card_w - 10, 95
+    
+    # Overlay background
+    overlay = frame.copy()
+    cv2.rectangle(overlay, (card_x, card_y), (card_x + card_w, card_y + card_h), COLOR_BG, -1)
+    cv2.rectangle(overlay, (card_x, card_y), (card_x + card_w, card_y + card_h), COLOR_GRAY, 1)
+    cv2.addWeighted(overlay, 0.75, frame, 0.25, 0, frame)
+    
+    # Heading
+    view_upper = analyzer.current_view.upper()
+    if view_upper == "OBLIQUE":
+        view_color = COLOR_GREEN
+        view_status = "OBLIQUE (45) [BEST]"
+    elif view_upper == "SIDE":
+        view_color = COLOR_YELLOW
+        view_status = "SIDE (90) [GOOD]"
+    else:
+        view_color = (0, 140, 255)  # Orange/Warning
+        view_status = "FRONT (0) [LIMITS]"
+        
+    cv2.putText(frame, f"CAMERA: {view_status}", (card_x + 10, card_y + 20),
+                cv2.FONT_HERSHEY_SIMPLEX, 0.45, view_color, 2)
+    cv2.line(frame, (card_x + 10, card_y + 28), (card_x + card_w - 10, card_y + 28), COLOR_GRAY, 1)
+    
+    # Active Rules list
+    rules_y = card_y + 45
+    def draw_rule_status(name, active, rx, ry):
+        symbol = "[x]" if active else "[ ]"
+        r_color = COLOR_GREEN if active else COLOR_GRAY
+        cv2.putText(frame, f"{symbol} {name}", (rx, ry),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.38, r_color, 1)
+                    
+    # Col 1
+    draw_rule_status("Knee Cave", analyzer.current_view in ("front", "oblique"), card_x + 15, rules_y)
+    draw_rule_status("Heel Rise", analyzer.current_view in ("side", "oblique"), card_x + 15, rules_y + 20)
+    draw_rule_status("Butt First", analyzer.current_view in ("side", "oblique"), card_x + 15, rules_y + 40)
+    
+    # Col 2
+    draw_rule_status("Fwd Lean", analyzer.current_view in ("side", "oblique"), card_x + 160, rules_y)
+    draw_rule_status("Knees>Toes", analyzer.current_view == "side", card_x + 160, rules_y + 20)
+    draw_rule_status("Weight Sym", analyzer.current_view in ("front", "oblique"), card_x + 160, rules_y + 40)
+
     # ── Rep quality flash ──
     if analyzer.last_rep_quality and analyzer.rep_count > 0:
         quality_colors = {"good": COLOR_GREEN, "fair": COLOR_YELLOW, "poor": COLOR_RED}
@@ -475,6 +524,9 @@ def run_camera(source=0, rotate=0):
     print("  Camera opened. Starting analysis...")
     print("  Press Q or ESC to quit, R to reset, C to change camera, O to rotate.\n")
 
+    # Create a normal resizable window so we can control scale and prevent clipping
+    cv2.namedWindow("Squat Posture AI", cv2.WINDOW_NORMAL)
+
     with mp_pose.Pose(
         static_image_mode=False,
         model_complexity=1,  # Balance speed/accuracy for real-time
@@ -522,6 +574,18 @@ def run_camera(source=0, rotate=0):
             prev_time = curr_time
             cv2.putText(frame, f"FPS: {fps:.0f}", (10, 105),
                         cv2.FONT_HERSHEY_SIMPLEX, 0.5, COLOR_GREEN, 1)
+
+            # Resize the OpenCV window dynamically if the frame is in portrait layout
+            # (height > width) so it fits on landscape monitors without clipping the bottom panel.
+            fh, fw = frame.shape[:2]
+            if fh > fw:
+                # Tall portrait mode: scale down height to 750px and compute proportional width
+                display_h = 750
+                display_w = int(fw * (display_h / fh))
+                cv2.resizeWindow("Squat Posture AI", display_w, display_h)
+            else:
+                # Normal landscape mode
+                cv2.resizeWindow("Squat Posture AI", fw, fh)
 
             # Show
             cv2.imshow("Squat Posture AI", frame)

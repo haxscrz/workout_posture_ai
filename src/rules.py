@@ -295,16 +295,18 @@ def check_uneven_weight(landmarks, view='front'):
 
 def run_all_rules(landmarks, baseline, is_squatting=False, hip_y_history=None, shoulder_y_history=None):
     """
-    Run all profile-aware posture rules and return detected issues.
+    Run all profile-aware posture rules and return detected issues and the view type.
+    Returns:
+        (issues, view)
     """
     issues = []
 
-    if not is_squatting:
-        return issues
-
-    # 1. Detect view profile dynamically
+    # 1. Detect view profile dynamically (always calculated so HUD displays it even if standing)
     view = get_viewing_angle(landmarks)
     body_h = get_body_height(landmarks)
+
+    if not is_squatting:
+        return issues, view
 
     # 2. Run standard lateral & transverse posture rules
     result = check_knee_cave(landmarks, view)
@@ -332,4 +334,4 @@ def run_all_rules(landmarks, baseline, is_squatting=False, hip_y_history=None, s
     if result:
         issues.extend(result)
 
-    return issues
+    return issues, view
